@@ -589,6 +589,7 @@
 };
 
 &saradc {
+	u-boot,dm-pre-reloc;
 	vref-supply = <&vccadc_ref>;
 	status = "okay";
 };
