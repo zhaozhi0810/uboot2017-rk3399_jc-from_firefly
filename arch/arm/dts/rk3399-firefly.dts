@@ -160,7 +160,7 @@
 		regulator-boot-on;
 		regulator-min-microvolt = <430000>;
 		regulator-max-microvolt = <1400000>;
-		regulator-init-microvolt = <110000>;
+		regulator-init-microvolt = <1100000>;
 	};
 
 	vccadc_ref: vccadc-ref {
