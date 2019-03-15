@@ -18,11 +18,12 @@
 	};
 
 	vcc3v3_sdmmc: sdmmc-pwren {
+		u-boot,dm-pre-reloc;
 		compatible = "regulator-fixed";
 		regulator-name = "vcc3v3";
 		gpio = <&gpio0 30 GPIO_ACTIVE_HIGH>;
-		regulator-always-on;
-		regulator-boot-on;
+		pinctrl-names = "default";
+		pinctrl-0 = <&sdmmc0_pwr>;
 	};
 
 	vcc5v0_otg: vcc5v0-otg-drv {
@@ -244,5 +245,13 @@
 			<1 RK_PD0 RK_FUNC_GPIO &pcfg_pull_up>;	/* gpio1_d0 */
 		};
 	};
+
+	sdcard {
+		sdmmc0_pwr: sdmmc0-pwr {
+		rockchip,pins =
+			<0 RK_PD6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
 };
 
