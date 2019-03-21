@@ -393,7 +393,9 @@ static struct dwc2_plat_otg_data otg_data = {
 int board_usb_init(int index, enum usb_init_type init)
 {
 	int node;
+#ifndef CONFIG_USING_KERNEL_DTB
 	const char *mode;
+#endif
 	fdt_addr_t addr;
 	const fdt32_t *reg;
 	bool matched = false;
@@ -402,7 +404,7 @@ int board_usb_init(int index, enum usb_init_type init)
 	/* find the usb_otg node */
 	node = fdt_node_offset_by_compatible(blob, -1,
 					"snps,dwc2");
-
+#ifndef CONFIG_USING_KERNEL_DTB
 	while (node > 0) {
 		mode = fdt_getprop(blob, node, "dr_mode", NULL);
 		if (mode && strcmp(mode, "otg") == 0) {
@@ -413,7 +415,7 @@ int board_usb_init(int index, enum usb_init_type init)
 		node = fdt_node_offset_by_compatible(blob, node,
 					"snps,dwc2");
 	}
-
+#endif
 	if (!matched) {
 		/*
 		 * With kernel dtb support, rk3288 dwc2 otg node
