@@ -28,6 +28,7 @@
 	};
 
 	vcc5v0_otg: vcc5v0-otg-drv {
+		u-boot,dm-pre-reloc;
 		compatible = "regulator-fixed";
 		enable-active-high;
 		regulator-name = "vcc5v0_otg";
@@ -37,6 +38,7 @@
 	};
 
 	vcc5v0_host_xhci: vcc5v0-host-xhci-drv {
+		u-boot,dm-pre-reloc;
 		status = "disabled";	//usb host xhci and usb otg use the same gpio to enable power
 		compatible = "regulator-fixed";
 		enable-active-high;
@@ -47,12 +49,14 @@
 	};
 
 	adc-keys {
+		u-boot,dm-pre-reloc;
 		compatible = "adc-keys";
 		io-channels = <&saradc 0>;
 	};
 };
 
 &saradc {
+	u-boot,dm-pre-reloc;
 	status = "okay";
 };
 

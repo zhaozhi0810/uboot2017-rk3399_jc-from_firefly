@@ -60,3 +60,7 @@
 &u2phy_otg {
 	u-boot,dm-pre-reloc;
 };
+
+&pinctrl {
+	u-boot,dm-pre-reloc;
+};
