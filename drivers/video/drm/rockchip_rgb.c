@@ -10,12 +10,15 @@
 #include <regmap.h>
 #include <dm/device.h>
 #include <dm/read.h>
+#include <dm/pinctrl.h>
 #include <linux/media-bus-format.h>
 
 #include "rockchip_display.h"
 #include "rockchip_crtc.h"
 #include "rockchip_connector.h"
 #include "rockchip_phy.h"
+
+#define HIWORD_UPDATE(v, h, l)		(((v) << (l)) | (GENMASK(h, l) << 16))
 
 #define PX30_GRF_PD_VO_CON1		0x0438
 #define PX30_RGB_DATA_SYNC_BYPASS(v)	HIWORD_UPDATE(v, 3, 3)
@@ -62,6 +65,8 @@ static int rockchip_rgb_connector_enable(struct display_state *state)
 	int pipe = crtc_state->crtc_id;
 	int ret;
 
+	pinctrl_select_state(rgb->dev, "default");
+
 	if (rgb->funcs && rgb->funcs->enable)
 		rgb->funcs->enable(rgb, pipe);
 
@@ -87,6 +92,8 @@ static int rockchip_rgb_connector_disable(struct display_state *state)
 
 	if (rgb->funcs && rgb->funcs->disable)
 		rgb->funcs->disable(rgb);
+
+	pinctrl_select_state(rgb->dev, "sleep");
 
 	return 0;
 }

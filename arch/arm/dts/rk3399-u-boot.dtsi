@@ -54,6 +54,10 @@
 	u-boot,dm-pre-reloc;
 };
 
+&crypto {
+	u-boot,dm-pre-reloc;
+};
+
 &grf {
 	u-boot,dm-pre-reloc;
 };

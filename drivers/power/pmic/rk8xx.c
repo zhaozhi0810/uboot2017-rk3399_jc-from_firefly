@@ -13,17 +13,21 @@
 
 DECLARE_GLOBAL_DATA_PTR;
 
+static struct reg_data rk817_init_reg[] = {
+/* enable the under-voltage protection,
+ * the under-voltage protection will shutdown the LDO3 and reset the PMIC
+ */
+	{ RK817_BUCK4_CMIN, 0x60, 0x60},
 /*
  * Only when system suspend while U-Boot charge needs this config support
  */
 #ifdef CONFIG_DM_CHARGE_DISPLAY
-static struct reg_data rk817_init_reg[] = {
 	/* Set pmic_sleep as sleep function */
 	{ RK817_PMIC_SYS_CFG3, 0x08, 0x18 },
 	/* Set pmic_int active low */
 	{ RK817_GPIO_INT_CFG,  0x00, 0x02 },
-};
 #endif
+};
 
 static const struct pmic_child_info pmic_children_info[] = {
 	{ .prefix = "DCDC", .driver = "rk8xx_buck"},
@@ -34,6 +38,11 @@ static const struct pmic_child_info pmic_children_info[] = {
 
 static const struct pmic_child_info power_key_info[] = {
 	{ .prefix = "pwrkey", .driver = "rk8xx_pwrkey"},
+	{ },
+};
+
+static const struct pmic_child_info rtc_info[] = {
+	{ .prefix = "rtc", .driver = "rk8xx_rtc"},
 	{ },
 };
 
@@ -147,6 +156,10 @@ static int rk8xx_bind(struct udevice *dev)
 	if (!children)
 		debug("%s: %s - no child found\n", __func__, dev->name);
 
+	children = pmic_bind_children(dev, dev->node, rtc_info);
+	if (!children)
+		debug("%s: %s - no child found\n", __func__, dev->name);
+
 	children = pmic_bind_children(dev, dev->node, fuel_gauge_info);
 	if (!children)
 		debug("%s: %s - no child found\n", __func__, dev->name);
@@ -168,6 +181,8 @@ static int rk8xx_probe(struct udevice *dev)
 	int ret = 0, i, show_variant;
 	uint8_t msb, lsb, id_msb, id_lsb;
 	uint8_t on_source = 0, off_source = 0;
+	uint8_t power_en0, power_en1, power_en2, power_en3;
+	uint8_t value;
 
 	/* read Chip variant */
 	if (device_is_compatible(dev, "rockchip,rk817") ||
@@ -202,10 +217,17 @@ static int rk8xx_probe(struct udevice *dev)
 	case RK817_ID:
 		on_source = RK817_ON_SOURCE;
 		off_source = RK817_OFF_SOURCE;
-#ifdef CONFIG_DM_CHARGE_DISPLAY
 		init_data = rk817_init_reg;
 		init_data_num = ARRAY_SIZE(rk817_init_reg);
-#endif
+		power_en0 = pmic_reg_read(dev, RK817_POWER_EN0);
+		power_en1 = pmic_reg_read(dev, RK817_POWER_EN1);
+		power_en2 = pmic_reg_read(dev, RK817_POWER_EN2);
+		power_en3 = pmic_reg_read(dev, RK817_POWER_EN3);
+
+		value = (power_en0 & 0x0f) | ((power_en1 & 0x0f) << 4);
+		pmic_reg_write(dev, RK817_POWER_EN_SAVE0, value);
+		value = (power_en2 & 0x0f) | ((power_en3 & 0x0f) << 4);
+		pmic_reg_write(dev, RK817_POWER_EN_SAVE1, value);
 		break;
 	default:
 		printf("Unknown PMIC: RK%x!!\n", priv->variant);
@@ -228,13 +250,10 @@ static int rk8xx_probe(struct udevice *dev)
 
 	printf("PMIC:  RK%x ", show_variant);
 
-	if (on_source && off_source) {
-		on_source = pmic_reg_read(dev, on_source);
-		off_source = pmic_reg_read(dev, off_source);
+	if (on_source && off_source)
 		printf("(on=0x%02x, off=0x%02x)",
 		       pmic_reg_read(dev, on_source),
 		       pmic_reg_read(dev, off_source));
-	}
 	printf("\n");
 
 	return 0;

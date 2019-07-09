@@ -6,6 +6,7 @@
 #include <common.h>
 #include <adc.h>
 #include <asm/io.h>
+#include <fs.h>
 #include <malloc.h>
 #include <sysmem.h>
 #include <linux/list.h>
@@ -177,6 +178,9 @@ static int init_resource_list(struct resource_img_hdr *hdr)
 #endif
 
 	if (hdr) {
+		if (resource_image_check_header(hdr))
+			return -EEXIST;
+
 		content = (void *)((char *)hdr
 				   + (hdr->c_offset) * RK_BLK_SIZE);
 		for (e_num = 0; e_num < hdr->e_nums; e_num++) {
@@ -209,11 +213,16 @@ static int init_resource_list(struct resource_img_hdr *hdr)
 #ifdef CONFIG_ANDROID_AB
 	char slot_suffix[3] = {0};
 
-	if (rk_avb_get_current_slot(slot_suffix))
+	if (rk_avb_get_current_slot(slot_suffix)) {
+		ret = -ENODEV;
 		goto out;
+	}
+
 	boot_partname = android_str_append(boot_partname, slot_suffix);
-	if (boot_partname == NULL)
+	if (!boot_partname) {
+		ret = -EINVAL;
 		goto out;
+	}
 #endif
 	ret = part_get_info_by_name(dev_desc, boot_partname, &part_info);
 	if (ret < 0) {
@@ -232,6 +241,7 @@ static int init_resource_list(struct resource_img_hdr *hdr)
 	if (ret != 1) {
 		printf("%s: failed to read %s hdr, ret=%d\n",
 		       __func__, part_info.name, ret);
+		ret = -EIO;
 		goto out;
 	}
 	ret = android_image_check_header(andr_hdr);
@@ -271,17 +281,21 @@ next:
 	if (ret != 1) {
 		printf("%s: failed to read resource hdr, ret=%d\n",
 		       __func__, ret);
+		ret = -EIO;
 		goto out;
 	}
 
 	ret = resource_image_check_header(hdr);
-	if (ret < 0)
+	if (ret < 0) {
+		ret = -EINVAL;
 		goto out;
+	}
 
 	content = memalign(ARCH_DMA_MINALIGN,
 			   hdr->e_blks * hdr->e_nums * RK_BLK_SIZE);
 	if (!content) {
 		printf("%s: failed to alloc memory for content\n", __func__);
+		ret = -ENOMEM;
 		goto out;
 	}
 
@@ -291,6 +305,7 @@ next:
 	if (ret != (hdr->e_blks * hdr->e_nums)) {
 		printf("%s: failed to read resource entries, ret=%d\n",
 		       __func__, ret);
+		ret = -EIO;
 		goto err;
 	}
 
@@ -300,13 +315,14 @@ next:
 		add_file_to_list(entry, offset);
 	}
 
+	ret = 0;
 	printf("Load FDT from %s part\n", boot_partname);
 err:
 	free(content);
 out:
 	free(hdr);
 
-	return 0;
+	return ret;
 }
 
 static struct resource_file *get_file_info(struct resource_img_hdr *hdr,
@@ -315,8 +331,10 @@ static struct resource_file *get_file_info(struct resource_img_hdr *hdr,
 	struct resource_file *file;
 	struct list_head *node;
 
-	if (list_empty(&entrys_head))
-		init_resource_list(hdr);
+	if (list_empty(&entrys_head)) {
+		if (init_resource_list(hdr))
+			return NULL;
+	}
 
 	list_for_each(node, &entrys_head) {
 		file = list_entry(node, struct resource_file, link);
@@ -396,6 +414,7 @@ int rockchip_read_resource_file(void *buf, const char *name,
 #define KEY_WORDS_ADC_CTRL	"#_"
 #define KEY_WORDS_ADC_CH	"_ch"
 #define KEY_WORDS_GPIO		"#gpio"
+#define GPIO_SWPORT_DDR		0x04
 #define GPIO_EXT_PORT		0x50
 #define MAX_ADC_CH_NR		10
 #define MAX_GPIO_NR		10
@@ -500,7 +519,8 @@ static int gpio_parse_base_address(fdt_addr_t *gpio_base_addr)
 {
 	static int initial;
 	ofnode parent, node;
-	int i = 0;
+	const char *name;
+	int idx, nr = 0;
 
 	if (initial)
 		return 0;
@@ -517,11 +537,19 @@ static int gpio_parse_base_address(fdt_addr_t *gpio_base_addr)
 			continue;
 		}
 
-		gpio_base_addr[i++] = ofnode_get_addr(node);
-		debug("   - gpio%d: 0x%x\n", i - 1, (uint32_t)gpio_base_addr[i - 1]);
+		name = ofnode_get_name(node);
+		if (!is_digit((char)*(name + 4))) {
+			debug("   - bad gpio node name: %s\n", name);
+			continue;
+		}
+
+		nr++;
+		idx = *(name + 4) - '0';
+		gpio_base_addr[idx] = ofnode_get_addr(node);
+		debug("   - gpio%d: 0x%x\n", idx, (uint32_t)gpio_base_addr[idx]);
 	}
 
-	if (i == 0) {
+	if (nr == 0) {
 		debug("   - parse gpio address failed\n");
 		return -EINVAL;
 	}
@@ -556,6 +584,14 @@ static int rockchip_read_dtb_by_gpio(const char *file_name)
 
 	debug("%s\n", file_name);
 
+	/* Parse gpio address */
+	memset(gpio_base_addr, 0, sizeof(gpio_base_addr));
+	ret = gpio_parse_base_address(gpio_base_addr);
+	if (ret) {
+		debug("   - Can't parse gpio base address: %d\n", ret);
+		return ret;
+	}
+
 	strgpio = strstr(file_name, KEY_WORDS_GPIO);
 	while (strgpio) {
 		debug("   - substr: %s\n", strgpio);
@@ -570,13 +606,6 @@ static int rockchip_read_dtb_by_gpio(const char *file_name)
 			return -EINVAL;
 		}
 
-		/* Parse gpio address */
-		ret = gpio_parse_base_address(gpio_base_addr);
-		if (ret) {
-			debug("   - Can't parse gpio base address: %d\n", ret);
-			return ret;
-		}
-
 		/* Read gpio value */
 		port = *(p + 0) - '0';
 		bank = *(p + 1) - 'a';
@@ -588,9 +617,20 @@ static int rockchip_read_dtb_by_gpio(const char *file_name)
 		 * is enough. We use cached_v[] to save what we have read, zero
 		 * means not read before.
 		 */
-		if (cached_v[port] == 0)
+		if (cached_v[port] == 0) {
+			if (!gpio_base_addr[port]) {
+				debug("   - can't find gpio%d base address\n", port);
+				return 0;
+			}
+
+			/* Input mode */
+			val = readl(gpio_base_addr[port] + GPIO_SWPORT_DDR);
+			val &= ~(1 << (bank * 8 + pin));
+			writel(val, gpio_base_addr[port] + GPIO_SWPORT_DDR);
+
 			cached_v[port] =
 				readl(gpio_base_addr[port] + GPIO_EXT_PORT);
+		}
 
 		/* Verify result */
 		bit = bank * 8 + pin;
@@ -605,21 +645,79 @@ static int rockchip_read_dtb_by_gpio(const char *file_name)
 		}
 
 		debug("   - parse: gpio%d%c%d=%d, read=%d %s\n",
-		      port, bank + 'a', pin, lvl, val, found ? "(Y)" : "");
+		      port, bank + 'a', pin, lvl, val, found ? "(Y)" : "(N)");
 	}
 
 	return found ? 0 : -ENOENT;
 }
+
+#ifdef CONFIG_ROCKCHIP_EARLY_DISTRO_DTB
+static int rockchip_read_distro_dtb_file(char *fdt_addr)
+{
+	const char *cmd = "part list ${devtype} ${devnum} -bootable devplist";
+	char *devnum, *devtype, *devplist;
+	char devnum_part[12];
+	char fdt_hex_str[19];
+	char *fs_argv[5];
+	int ret;
+
+	if (!rockchip_get_bootdev() || !fdt_addr)
+		return -ENODEV;
+
+	ret = run_command_list(cmd, -1, 0);
+	if (ret)
+		return ret;
+
+	devplist = env_get("devplist");
+	if (!devplist)
+		return -ENODEV;
+
+	devtype = env_get("devtype");
+	devnum = env_get("devnum");
+	sprintf(devnum_part, "%s:%s", devnum, devplist);
+	sprintf(fdt_hex_str, "0x%lx", (ulong)fdt_addr);
+
+#ifdef CONFIG_CMD_FS_GENERIC
+	fs_argv[0] = "load";
+	fs_argv[1] = devtype,
+	fs_argv[2] = devnum_part;
+	fs_argv[3] = fdt_hex_str;
+	fs_argv[4] = CONFIG_ROCKCHIP_EARLY_DISTRO_DTB_PATH;
+
+	if (do_load(NULL, 0, 5, fs_argv, FS_TYPE_ANY))
+		return -EIO;
+#endif
+	if (fdt_check_header(fdt_addr))
+		return -EIO;
+
+	return fdt_totalsize(fdt_addr);
+}
+#endif
 
 int rockchip_read_dtb_file(void *fdt_addr)
 {
 	struct resource_file *file;
 	struct list_head *node;
 	char *dtb_name = DTB_FILE;
-	int ret, size;
+	int size = -ENODEV;
 
-	if (list_empty(&entrys_head))
-		init_resource_list(NULL);
+	if (list_empty(&entrys_head)) {
+		if (init_resource_list(NULL)) {
+#ifdef CONFIG_ROCKCHIP_EARLY_DISTRO_DTB
+			/* Maybe a distro boot.img with dtb ? */
+			printf("Distro DTB: %s\n",
+			       CONFIG_ROCKCHIP_EARLY_DISTRO_DTB_PATH);
+			size = rockchip_read_distro_dtb_file(fdt_addr);
+			if (size < 0)
+				return size;
+			if (!sysmem_alloc_base(MEMBLK_ID_FDT,
+				(phys_addr_t)fdt_addr,
+				ALIGN(size, RK_BLK_SIZE) + CONFIG_SYS_FDT_PAD))
+				return -ENOMEM;
+#endif
+			return size;
+		}
+	}
 
 	list_for_each(node, &entrys_head) {
 		file = list_entry(node, struct resource_file, link);
@@ -644,17 +742,17 @@ int rockchip_read_dtb_file(void *fdt_addr)
 	if (size < 0)
 		return size;
 
-	if (!sysmem_alloc_base("fdt", (phys_addr_t)fdt_addr,
-			       ALIGN(size, RK_BLK_SIZE)))
+	if (!sysmem_alloc_base(MEMBLK_ID_FDT, (phys_addr_t)fdt_addr,
+			       ALIGN(size, RK_BLK_SIZE) + CONFIG_SYS_FDT_PAD))
 		return -ENOMEM;
 
-	ret = rockchip_read_resource_file((void *)fdt_addr, dtb_name, 0, 0);
-	if (ret < 0)
-		return ret;
+	size = rockchip_read_resource_file((void *)fdt_addr, dtb_name, 0, 0);
+	if (size < 0)
+		return size;
 
 #if defined(CONFIG_CMD_DTIMG) && defined(CONFIG_OF_LIBFDT_OVERLAY)
 	android_fdt_overlay_apply((void *)fdt_addr);
 #endif
 
-	return ret;
+	return size;
 }

@@ -24,7 +24,12 @@ static int rkusb_read_sector(struct ums *ums_dev,
 	struct blk_desc *block_dev = &ums_dev->block_dev;
 	lbaint_t blkstart = start + ums_dev->start_sector;
 
-	return blk_dread(block_dev, blkstart, blkcnt, buf);
+	if ((blkstart + blkcnt) > RKUSB_READ_LIMIT_ADDR) {
+		memset(buf, 0xcc, blkcnt * SECTOR_SIZE);
+		return blkcnt;
+	} else {
+		return blk_dread(block_dev, blkstart, blkcnt, buf);
+	}
 }
 
 static int rkusb_write_sector(struct ums *ums_dev,
@@ -170,8 +175,23 @@ static int do_rkusb(cmd_tbl_t *cmdtp, int flag, int argc, char *const argv[])
 	}
 
 	s = env_get("serial#");
-	if (s)
-		g_dnl_set_serialnumber((char *)s);
+	if (s) {
+		char *sn = (char *)calloc(strlen(s) + 1, sizeof(char));
+		char *sn_p = sn;
+
+		if (!sn)
+			goto cleanup_board;
+
+		memcpy(sn, s, strlen(s));
+		while (*sn_p) {
+			if (*sn_p == '\\' || *sn_p == '/')
+				*sn_p = '_';
+			sn_p++;
+		}
+
+		g_dnl_set_serialnumber(sn);
+		free(sn);
+	}
 
 	rc = g_dnl_register("rkusb_ums_dnl");
 	if (rc) {

@@ -10,6 +10,8 @@
 #include <asm/gpio.h>
 #include <debug_uart.h>
 
+DECLARE_GLOBAL_DATA_PTR;
+
 #ifdef CONFIG_ARM64
 #include <asm/armv8/mmu.h>
 static struct mm_region rk3308_mem_map[] = {
@@ -36,6 +38,7 @@ struct mm_region *mem_map = rk3308_mem_map;
 #endif
 
 #define GRF_BASE	0xff000000
+#define SGRF_BASE	0xff2b0000
 
 enum {
 
@@ -118,12 +121,16 @@ int rk_board_init(void)
 		      VCCIO3_3V3 << IOVSEL3_SHIFT;
 	rk_clrsetreg(&grf->soc_con0, IOVSEL3_CTRL_MASK | IOVSEL3_MASK, val);
 
+	gpio_free(GPIO0_A4);
 	return 0;
 }
 
 void board_debug_uart_init(void)
 {
 	static struct rk3308_grf * const grf = (void *)GRF_BASE;
+
+	if (gd && gd->serial.using_pre_serial)
+		return;
 
 	/* Enable early UART2 channel m1 on the rk3308 */
 	rk_clrsetreg(&grf->soc_con5, UART2_IO_SEL_MASK,
@@ -133,3 +140,15 @@ void board_debug_uart_init(void)
 		     GPIO4D2_UART2_RX_M1 << GPIO4D2_SHIFT |
 		     GPIO4D3_UART2_TX_M1 << GPIO4D3_SHIFT);
 }
+
+#if defined(CONFIG_SPL_BUILD)
+int arch_cpu_init(void)
+{
+	static struct rk3308_sgrf * const sgrf = (void *)SGRF_BASE;
+
+	/* Set CRYPTO SDMMC EMMC NAND SFC USB master bus to be secure access */
+	rk_clrreg(&sgrf->con_secure0, 0x2b83);
+
+	return 0;
+}
+#endif

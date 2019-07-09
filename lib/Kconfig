@@ -35,6 +35,12 @@ config SYS_HZ
 	  get_timer() must operate in milliseconds and this option must be
 	  set to 1000.
 
+config SYS_STACK_SIZE
+	hex
+	default 0x200000
+	help
+	 The system stack size.
+
 config USE_TINY_PRINTF
 	bool "Enable tiny printf() version"
 	help
@@ -98,6 +104,12 @@ config SYSMEM
 	default y
 	help
 	  This enables support for system permanent memory management.
+
+config BIDRAM
+	bool "GD board bi_dram[] memory management"
+	default y
+	help
+	  This enables support for GD board bi_dram[] memory management.
 
 source lib/dhry/Kconfig
 
@@ -310,5 +322,4 @@ source lib/avb/libavb_atx/Kconfig
 source lib/avb/libavb_user/Kconfig
 source lib/avb/rk_avb_user/Kconfig
 source lib/optee_clientApi/Kconfig
-
 endmenu

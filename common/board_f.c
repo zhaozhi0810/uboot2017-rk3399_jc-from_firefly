@@ -40,6 +40,7 @@
 #include <asm/sections.h>
 #include <dm/root.h>
 #include <linux/errno.h>
+#include <sysmem.h>
 
 /*
  * Pointer to initial global data area
@@ -702,8 +703,6 @@ static int initf_bootstage(void)
 			IS_ENABLED(CONFIG_BOOTSTAGE_STASH);
 	int ret;
 
-	gd->sys_start_tick = get_ticks();
-
 	ret = bootstage_init(!from_spl);
 	if (ret)
 		return ret;
@@ -876,6 +875,9 @@ static const init_fnc_t init_sequence_f[] = {
 	reserve_stacks,
 	dram_init_banksize,
 	show_dram_config,
+#ifdef CONFIG_SYSMEM
+	sysmem_init,		/* Validate above reserve memory */
+#endif
 #if defined(CONFIG_M68K) || defined(CONFIG_MIPS) || defined(CONFIG_PPC) || \
 	defined(CONFIG_SH)
 	setup_board_part1,
