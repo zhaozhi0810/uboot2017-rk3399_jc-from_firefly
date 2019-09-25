@@ -106,8 +106,12 @@ void boot_devtype_init(void)
 		env_set("devtype", devtype);
 		env_set("devnum", devnum);
 #ifdef CONFIG_DM_MMC
-		if (!strcmp("mmc", devtype))
+		if (!strcmp("mmc", devtype)) {
 			mmc_initialize(gd->bd);
+			if (!strcmp("1", devnum)) {
+				run_command_list("rkimgtest mmc 1", -1, 0);
+			}
+		}
 #endif
 	} else {
 #ifdef CONFIG_DM_MMC
