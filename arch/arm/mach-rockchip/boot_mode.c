@@ -14,6 +14,7 @@
 #include <dm.h>
 #include <fdtdec.h>
 #include <boot_rkimg.h>
+#include <stdlib.h>
 #include <linux/usb/phy-rockchip-inno-usb2.h>
 #include <key.h>
 #ifdef CONFIG_DM_RAMDISK
@@ -105,6 +106,7 @@ void boot_devtype_init(void)
 		atags_en = 1;
 		env_set("devtype", devtype);
 		env_set("devnum", devnum);
+
 #ifdef CONFIG_DM_MMC
 		if (!strcmp("mmc", devtype)) {
 			mmc_initialize(gd->bd);
@@ -113,20 +115,33 @@ void boot_devtype_init(void)
 			}
 		}
 #endif
-	} else {
-#ifdef CONFIG_DM_MMC
-		mmc_initialize(gd->bd);
-#endif
-		ret = run_command_list(devtype_num_set, -1, 0);
-		if (ret) {
-			/* Set default dev type/num if command not valid */
-			devtype = "mmc";
-			devnum = "0";
-			env_set("devtype", devtype);
-			env_set("devnum", devnum);
-		}
+		/*
+		 * For example, the pre-loader do not have mtd device,
+		 * and pass devtype is nand. Then U-Boot can not get
+		 * dev_desc when use mtd driver to read firmware. So
+		 * test the block dev is exist or not here.
+		 *
+		 * And the devtype & devnum maybe wrong sometimes, it
+		 * is better to test first.
+		 */
+		if (blk_get_devnum_by_typename(devtype, atoi(devnum)))
+			goto finish;
 	}
 
+	/* If not find valid bootdev by atags, scan all possible */
+#ifdef CONFIG_DM_MMC
+	mmc_initialize(gd->bd);
+#endif
+	ret = run_command_list(devtype_num_set, -1, 0);
+	if (ret) {
+		/* Set default dev type/num if command not valid */
+		devtype = "mmc";
+		devnum = "0";
+		env_set("devtype", devtype);
+		env_set("devnum", devnum);
+	}
+
+finish:
 	done = 1;
 	printf("Bootdev%s: %s %s\n", atags_en ? "(atags)" : "",
 	       env_get("devtype"), env_get("devnum"));
@@ -145,29 +160,8 @@ void rockchip_dnl_mode_check(void)
 			set_back_to_bootrom_dnl_flag();
 			do_reset(NULL, 0, 0, NULL);
 		} else {
-			printf("\n");
-#ifdef CONFIG_RKIMG_BOOTLOADER
-			/* If there is no recovery partition, just boot on */
-			struct blk_desc *dev_desc;
-			disk_partition_t part_info;
-			int ret;
-
-			dev_desc = rockchip_get_bootdev();
-			if (!dev_desc) {
-				printf("%s: dev_desc is NULL!\n", __func__);
-				return;
-			}
-
-			ret = part_get_info_by_name(dev_desc,
-						    PART_RECOVERY,
-						    &part_info);
-			if (ret < 0) {
-				debug("%s: no recovery partition\n", __func__);
-				return;
-			}
-#endif
-			printf("recovery key pressed, entering recovery mode!\n");
-			env_set("reboot_mode", "recovery");
+			printf("entering recovery mode!\n");
+			env_set("reboot_mode", "recovery-key");
 		}
 	} else if (is_hotkey(HK_FASTBOOT)) {
 		env_set("reboot_mode", "fastboot");
@@ -208,10 +202,6 @@ int setup_boot_mode(void)
 	case BOOT_MODE_CHARGING:
 		printf("enter charging!\n");
 		env_set("preboot", "setenv preboot; charge");
-		break;
-	case BOOT_MODE_RECOVERY:
-		printf("enter Recovery mode!\n");
-		env_set("reboot_mode", "recovery");
 		break;
 	}
 

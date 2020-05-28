@@ -75,11 +75,15 @@ help()
 {
 	echo
 	echo "Usage:"
-	echo "	./make.sh [board|subcmd] [O=<dir>]"
+	echo "	./make.sh [board|subcmd] [O=<dir>|ini]"
 	echo
-	echo "	 - board: board name of defconfig"
-	echo "	 - subcmd: loader|loader-all|trust|trust-all|uboot|elf|map|sym|<addr>|"
-	echo "	 - O=<dir>: assigned output directory"
+	echo "	 - board:   board name of defconfig"
+	echo "	 - subcmd:  |elf*|loader*|spl*|itb||trust*|uboot|map|sym|<addr>|"
+	echo "	 - O=<dir>: assigned output directory, not recommend"
+	echo "	 - ini:     assigned ini file to pack trust/loader"
+	echo
+	echo "Output:"
+	echo "	 When board built okay, there are uboot/trust/loader images in current directory"
 	echo
 	echo "Example:"
 	echo
@@ -89,19 +93,23 @@ help()
 	echo "	./make.sh firefly-rk3288           --- build for firefly-rk3288_defconfig"
 	echo "	./make.sh                          --- build with exist .config"
 	echo
-	echo "	After build, Images of uboot, loader and trust are all generated."
-	echo
 	echo "2. Pack helper:"
 	echo "	./make.sh uboot                    --- pack uboot.img"
 	echo "	./make.sh trust                    --- pack trust.img"
 	echo "	./make.sh trust-all                --- pack trust img (all supported)"
+	echo "	./make.sh trust <ini>              --- pack trust img with assigned ini file"
 	echo "	./make.sh loader                   --- pack loader bin"
 	echo "	./make.sh loader-all	           --- pack loader bin (all supported)"
+	echo "	./make.sh loader <ini>             --- pack loader img with assigned ini file"
+	echo "	./make.sh spl                      --- pack loader with u-boot-spl.bin and u-boot-tpl.bin"
+	echo "	./make.sh spl-s                    --- pack loader only replace miniloader with u-boot-spl.bin"
+	echo "	./make.sh itb                      --- pack u-boot.itb(TODO: bl32 is not included for ARMv8)"
 	echo
 	echo "3. Debug helper:"
 	echo "	./make.sh elf                      --- dump elf file with -D(default)"
 	echo "	./make.sh elf-S                    --- dump elf file with -S"
 	echo "	./make.sh elf-d                    --- dump elf file with -d"
+	echo "	./make.sh elf-*                    --- dump elf file with -*"
 	echo "	./make.sh <no reloc_addr>          --- dump function symbol and code position of address(no relocated)"
 	echo "	./make.sh <reloc_addr-reloc_off>   --- dump function symbol and code position of address(relocated)"
 	echo "	./make.sh map                      --- cat u-boot.map"
@@ -367,6 +375,8 @@ select_chip_info()
 			&& RKCHIP=PX5
 		grep '^CONFIG_ROCKCHIP_RK3399PRO=y' ${OUTDIR}/.config >/dev/null \
 			&& RKCHIP=RK3399PRO
+		grep '^CONFIG_ROCKCHIP_RK1806=y' ${OUTDIR}/.config >/dev/null \
+			&& RKCHIP=RK1806
 	else
 		echo "Can't get Rockchip SoC definition in .config"
 		exit 1
@@ -559,7 +569,6 @@ pack_uboot_image()
 	if [ -f ${OUTDIR}/u-boot-dtb.img ]; then
 		rm ${OUTDIR}/u-boot-dtb.img
 	fi
-
 	echo "pack uboot okay! Input: ${OUTDIR}/u-boot.bin"
 }
 
@@ -622,9 +631,10 @@ pack_spl_loader_image()
 	# Copy to .temp folder
 	if [ -d ${RKBIN}/.temp ]; then
 		rm ${RKBIN}/.temp -rf
-	else
-		mkdir ${RKBIN}/.temp
 	fi
+
+	mkdir ${RKBIN}/.temp
+
 	cp ${OUTDIR}/spl/u-boot-spl.bin ${RKBIN}/.temp/
 	cp ${OUTDIR}/tpl/u-boot-tpl.bin ${RKBIN}/.temp/
 	cp ${ini} ${RKBIN}/.temp/${RKCHIP_LOADER}MINIALL.ini -f
@@ -664,6 +674,15 @@ pack_loader_image()
 	fi
 
 	ls *_loader_*.bin >/dev/null 2>&1 && rm *_loader_*.bin
+
+	numline=`cat $ini | wc -l`
+	if [ $numline -eq 1 ]; then
+		image=`sed -n "/PATH=/p" $ini | tr -d '\r' | cut -d '=' -f 2`
+		cp ${RKBIN}/${image} ./
+		echo "pack trust okay! Input: ${ini}"
+		return;
+	fi
+
 	cd ${RKBIN}
 
 	if [ "${mode}" = 'all' ]; then
@@ -762,12 +781,21 @@ pack_trust_image()
 {
 	local mode=$1 files ini
 
-	ls trust*.img >/dev/null && rm trust*.img
+	ls trust*.img >/dev/null 2>&1 && rm trust*.img
+
 	# ARM64 uses trust_merger
 	if grep -Eq ''^CONFIG_ARM64=y'|'^CONFIG_ARM64_BOOT_AARCH32=y'' ${OUTDIR}/.config ; then
 		ini=${RKBIN}/RKTRUST/${RKCHIP_TRUST}TRUST.ini
 		if [ "$FILE" != "" ]; then
 			ini=$FILE;
+		fi
+
+		numline=`cat $ini | wc -l`
+		if [ $numline -eq 1 ]; then
+			image=`sed -n "/PATH=/p" $ini | tr -d '\r' | cut -d '=' -f 2`
+			cp ${RKBIN}/${image} ./trust.img
+			echo "pack trust okay! Input: ${ini}"
+			return;
 		fi
 
 		if [ "${mode}" = 'all' ]; then
@@ -785,6 +813,7 @@ pack_trust_image()
 		if [ "$FILE" != "" ]; then
 			ini=$FILE;
 		fi
+
 		if [ "${mode}" = 'all' ]; then
 			files=`ls ${RKBIN}/RKTRUST/${RKCHIP_TRUST}TOS*.ini`
 			for ini in $files
