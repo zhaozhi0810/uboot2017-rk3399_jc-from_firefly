@@ -24,7 +24,6 @@ struct rockchip_panel {
 	unsigned int bpc;
 	const struct rockchip_panel_funcs *funcs;
 	const void *data;
-
 	struct display_state *state;
 };
 

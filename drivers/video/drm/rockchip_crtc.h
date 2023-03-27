@@ -10,13 +10,10 @@
 struct rockchip_crtc {
 	const struct rockchip_crtc_funcs *funcs;
 	const void *data;
-	struct drm_display_mode active_mode;
-	bool hdmi_hpd : 1;
-	bool active : 1;
+	bool hdmi_hpd;
 };
 
 struct rockchip_crtc_funcs {
-	int (*preinit)(struct display_state *state);
 	int (*init)(struct display_state *state);
 	void (*deinit)(struct display_state *state);
 	int (*set_plane)(struct display_state *state);
@@ -44,5 +41,4 @@ extern const struct vop_data rk3399_vop_lit;
 extern const struct vop_data rk322x_vop;
 extern const struct vop_data rk3328_vop;
 extern const struct vop_data rv1108_vop;
-extern const struct vop_data rv1126_vop;
 #endif

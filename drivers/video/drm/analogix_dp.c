@@ -3,6 +3,9 @@
  *
  * SPDX-License-Identifier:	GPL-2.0+
  */
+#define DEBUG
+#undef CONFIG_LOGLEVEL
+#define CONFIG_LOGLEVEL  7
 
 #include <config.h>
 #include <common.h>
@@ -335,7 +338,7 @@ static int analogix_dp_process_clock_recovery(struct analogix_dp_device *dp)
 		if (retval)
 			return retval;
 
-		dev_info(dp->dev, "Link Training Clock Recovery success\n");
+		dev_err(dp->dev, "Link Training Clock Recovery success\n");
 		dp->link_train.lt_state = EQUALIZER_TRAINING;
 	} else {
 		for (lane = 0; lane < lane_count; lane++) {
@@ -706,6 +709,7 @@ static int analogix_dp_read_edid(struct analogix_dp_device *dp)
 	retval = analogix_dp_read_byte_from_i2c(dp, I2C_EDID_DEVICE_ADDR,
 						EDID_EXTENSION_FLAG,
 						&extend_block);
+	dev_err(dp->dev, "read edid addr ret = %d", retval);
 	if (retval)
 		return retval;
 
@@ -747,7 +751,7 @@ static int analogix_dp_read_edid(struct analogix_dp_device *dp)
 				DP_TEST_EDID_CHECKSUM_WRITE);
 		}
 	} else {
-		dev_info(dp->dev,
+		dev_err(dp->dev,
 			 "EDID data does not include any extensions.\n");
 
 		/* Read EDID data */
@@ -782,7 +786,7 @@ static int analogix_dp_handle_edid(struct analogix_dp_device *dp)
 retry:
 	/* Read DPCD DP_DPCD_REV~RECEIVE_PORT1_CAP_1 */
 	retval = analogix_dp_read_bytes_from_dpcd(dp, DP_DPCD_REV, 12, buf);
-
+	dev_err(dp->dev, "read dpcd ret = %d", retval);
 	if (retval && try--) {
 		mdelay(10);
 		goto retry;
@@ -794,6 +798,7 @@ retry:
 	/* Read EDID */
 	for (i = 0; i < 3; i++) {
 		retval = analogix_dp_read_edid(dp);
+		dev_err(dp->dev, "read edid ret = %d", retval);
 		if (!retval)
 			break;
 	}

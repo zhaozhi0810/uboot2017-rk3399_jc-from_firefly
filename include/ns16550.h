@@ -246,3 +246,15 @@ int ns16550_serial_probe(struct udevice *dev);
  * These should be used by the client driver for the driver's 'ops' member
  */
 extern const struct dm_serial_ops ns16550_serial_ops;
+
+void com4_init(void);
+void com4_send_cmd(void);
+//-1 表示出错
+int com4_recv_a_byte_data(void);
+
+void com0_init(void);
+void com0_send_cmd(void);
+
+
+
+

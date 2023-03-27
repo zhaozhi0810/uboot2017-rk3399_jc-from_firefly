@@ -13,6 +13,9 @@
 #include <watchdog.h>
 #include <linux/types.h>
 #include <asm/io.h>
+#include <asm/arch/grf_rk3399.h>
+#include <asm/arch/hardware.h>
+
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -88,7 +91,7 @@ static inline int serial_in_shift(void *addr, int shift)
 #ifdef CONFIG_DM_SERIAL
 
 #ifndef CONFIG_SYS_NS16550_CLK
-#define CONFIG_SYS_NS16550_CLK  24000000
+#define CONFIG_SYS_NS16550_CLK  0
 #endif
 
 static void ns16550_writeb(NS16550_t port, int offset, int value)
@@ -287,6 +290,183 @@ DEBUG_UART_FUNCS
 
 #endif
 
+#define PMUCRU_BASE	0xff750000
+
+
+void board_com4_init(void)
+{
+//gpio的初始化
+#define PMUGRF_BASE	0xff320000
+	struct rk3399_pmugrf_regs * const pmugrf = (void *)PMUGRF_BASE;
+
+	/* Enable early UART4 channel on the RK3399/RK3399PRO */
+	rk_clrsetreg(&pmugrf->gpio1a_iomux,
+		     PMUGRF_GPIO1A7_SEL_MASK,
+		     PMUGRF_UART4_RXD << PMUGRF_GPIO1A7_SEL_SHIFT);
+	rk_clrsetreg(&pmugrf->gpio1b_iomux,
+		     PMUGRF_GPIO1B0_SEL_MASK,
+		     PMUGRF_UART4_TXD << PMUGRF_GPIO1B0_SEL_SHIFT);
+	printf("board_com4_init done..\n");
+
+}
+
+
+
+
+void com4_init(void)
+{
+	struct NS16550 *com_port = (struct NS16550 *)0xff370000;  //com4
+	int baud_divisor;
+	
+	baud_divisor = ns16550_calc_divisor(com_port, 24000000,
+						115200);
+
+	serial_dout(&com_port->ier, CONFIG_SYS_NS16550_IER);
+	serial_dout(&com_port->mdr1, 0x7);
+	serial_dout(&com_port->mcr, 0);
+	serial_dout(&com_port->fcr, UART_FCR_DEFVAL);
+//	serial_dout(&com_port->fcr, UART_FCR_RXSR | UART_FCR_TXSR);   //不使能FIFO
+
+	serial_dout(&com_port->lcr, UART_LCR_BKSE | UART_LCRVAL);   //设置波特率
+	serial_dout(&com_port->dll, baud_divisor & 0xff);
+	serial_dout(&com_port->dlm, (baud_divisor >> 8) & 0xff);	
+	serial_dout(&com_port->lcr, UART_LCRVAL);
+	serial_dout(&com_port->mdr1, 0x0);
+
+	//1. gpio 初始化
+	board_com4_init();
+
+//	printf("12-07-2022,end com4_init\n");
+	
+}
+
+
+void com4_send_cmd(void)
+{	
+	struct NS16550 *com_port = (struct NS16550 *)0xff370000;  //com4
+
+	char cmd_buf[] = {0xa5,0x5a,0x88,0,0,0,0,0x88};
+	int i;
+	
+	for(i=0;i<8;i++)
+	{
+		while (!(serial_din(&com_port->lsr) & UART_LSR_THRE))
+		;
+		serial_dout(&com_port->thr, cmd_buf[i]);
+	//	printf("cmd_buf[i] = %d\n",cmd_buf[i]);
+	}
+	//	NS16550_putc(com_port, cmd_buf[i]);
+	
+}
+
+
+//int is_com4_recv_data(void)
+//{
+//	struct NS16550 *com_port = (struct NS16550 *)0xff370000;  //com4
+//
+//	return(serial_in(&com_port->lsr) & UART_LSR_DR);
+//
+//}
+
+//-1 表示出错
+int com4_recv_a_byte_data(void)
+{
+	struct NS16550 *com_port = (struct NS16550 *)0xff370000;  //com4
+	int i = 0;
+
+	while(!(serial_din(&com_port->lsr) & UART_LSR_DR))  //返回0表示没有数据
+	{
+		mdelay(1);   //延时1ms
+		i++;
+		if(i>=200)   //最多等待200ms
+			return -1;
+	}
+	return serial_din(&com_port->rbr);   //收到数据了
+}
+
+
+
+//串口0初始化
+void board_com0_init(void)
+{
+//gpio的初始化
+#define GRF_BASE	0xff770000
+	struct rk3399_grf_regs * const grf = (void *)GRF_BASE;
+
+	/* Enable early UART0 on the RK3399 */
+	rk_clrsetreg(&grf->gpio2c_iomux,
+		     GRF_GPIO2C0_SEL_MASK,
+		     GRF_UART0BT_SIN << GRF_GPIO2C0_SEL_SHIFT);
+	rk_clrsetreg(&grf->gpio2c_iomux,
+		     GRF_GPIO2C1_SEL_MASK,
+		     GRF_UART0BT_SOUT << GRF_GPIO2C1_SEL_SHIFT);
+
+
+}
+
+
+
+
+void com0_init(void)
+{
+	struct NS16550 *com_port = (struct NS16550 *)0xff180000;  //com4
+	int baud_divisor;
+	
+	/*
+	 * We copy the code from above because it is already horribly messy.
+	 * Trying to refactor to nicely remove the duplication doesn't seem
+	 * feasible. The better fix is to move all users of this driver to
+	 * driver model.
+	 */
+	baud_divisor = ns16550_calc_divisor(com_port, 24000000,
+						115200);
+
+	serial_dout(&com_port->ier, CONFIG_SYS_NS16550_IER);
+	serial_dout(&com_port->mdr1, 0x7);
+	serial_dout(&com_port->mcr, 0);
+	serial_dout(&com_port->fcr, UART_FCR_DEFVAL);
+//	serial_dout(&com_port->fcr, UART_FCR_RXSR | UART_FCR_TXSR);   //不使能FIFO
+
+	serial_dout(&com_port->lcr, UART_LCR_BKSE | UART_LCRVAL);   //设置波特率
+	serial_dout(&com_port->dll, baud_divisor & 0xff);
+	serial_dout(&com_port->dlm, (baud_divisor >> 8) & 0xff);	
+	serial_dout(&com_port->lcr, UART_LCRVAL);
+	serial_dout(&com_port->mdr1, 0x0);
+
+	//1. gpio 初始化
+	board_com0_init();
+
+//	printf("22-12-19,end com0_init\n");
+	
+}
+
+//串口0只发送一个命令，不接收数据
+//这个命令针对话音接口板，导光面板不同
+void com0_send_cmd(void)
+{	
+	struct NS16550 *com_port = (struct NS16550 *)0xff180000;  //com4
+
+	char cmd_buf[] = {0xa5,65,0,0xe6};   //重启单片机
+	int i;
+	
+	for(i=0;i<4;i++)
+	{
+		while (!(serial_din(&com_port->lsr) & UART_LSR_THRE))
+		;
+		serial_dout(&com_port->thr, cmd_buf[i]);
+	//	printf("cmd_buf[i] = %d\n",cmd_buf[i]);
+	}
+	//	NS16550_putc(com_port, cmd_buf[i]);
+	
+}
+
+
+
+
+
+
+
+
 #ifdef CONFIG_DEBUG_UART_OMAP
 
 #include <debug_uart.h>
@@ -295,7 +475,7 @@ static inline void _debug_uart_init(void)
 {
 	struct NS16550 *com_port = (struct NS16550 *)CONFIG_DEBUG_UART_BASE;
 	int baud_divisor;
-
+	unsigned int val_temp;
 	baud_divisor = ns16550_calc_divisor(com_port, CONFIG_DEBUG_UART_CLOCK,
 					    CONFIG_BAUDRATE);
 
@@ -307,6 +487,7 @@ static inline void _debug_uart_init(void)
 
 	serial_dout(&com_port->ier, CONFIG_SYS_NS16550_IER);
 	serial_dout(&com_port->mdr1, 0x7);
+
 	serial_dout(&com_port->mcr, UART_MCRVAL);
 	serial_dout(&com_port->fcr, UART_FCR_DEFVAL);
 
@@ -481,7 +662,7 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 	plat->base = addr;
 #else
 
-	if (gd && gd->serial.using_pre_serial && gd->serial.id == dev->req_seq)
+	if (gd && gd->serial.using_pre_serial)
 		addr = gd->serial.addr;
 
 	plat->base = (unsigned long)map_physmem(addr, 0, MAP_NOCACHE);
@@ -496,7 +677,11 @@ int ns16550_serial_ofdata_to_platdata(struct udevice *dev)
 		if (!IS_ERR_VALUE(err))
 			plat->clock = err;
 	} else if (err != -ENOENT && err != -ENODEV && err != -ENOSYS) {
-		printf("ns16550 failed to get clock, err=%d\n", err);
+		debug("ns16550 failed to get clock\n");
+#ifdef CONFIG_USING_KERNEL_DTB
+/* With kernel dtb support, serial ofnode not able to get cru phandle */
+		if(err != -EINVAL)
+#endif
 		return err;
 	}
 

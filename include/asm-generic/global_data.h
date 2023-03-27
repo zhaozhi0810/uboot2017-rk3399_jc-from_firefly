@@ -151,6 +151,7 @@ typedef struct global_data {
 #if CONFIG_IS_ENABLED(FIT_ROLLBACK_PROTECT)
 	u32 rollback_index;
 #endif
+	int lcd_type;    //added by dazhi, 2022-12-07 ,用于屏幕识别
 } gd_t;
 #endif
 
